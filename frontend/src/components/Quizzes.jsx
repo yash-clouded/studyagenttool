@@ -14,16 +14,23 @@ export default function Quizzes({ quizzes }){
     }
     
     if (typeof quiz.options === 'string') {
-      // Try to split by "A) B) C) D)" pattern
-      const matches = quiz.options.match(/[A-D]\)\s*([^A-D)]+?)(?=[A-D]\)|$)/g);
-      if (matches && matches.length > 0) {
-        return matches.map(m => m.replace(/^[A-D]\)\s*/, '').trim());
+      // Pattern: "A) text B) text C) text D) text"
+      // Match each letter followed by ) and capture everything until the next letter or end
+      const optionMatches = quiz.options.match(/[A-D]\)\s*([^A-D]*?)(?=[A-D]\)|$)/g);
+      
+      if (optionMatches && optionMatches.length > 0) {
+        return optionMatches.map(m => {
+          // Remove the letter and parenthesis, then trim
+          return m.replace(/^[A-D]\)\s*/, '').trim();
+        }).filter(o => o.length > 0);
       }
-      // Try comma-separated
-      const commas = quiz.options.split(',').map(o => o.trim()).filter(o => o);
-      if (commas.length > 1) {
-        return commas;
+      
+      // Try comma-separated format
+      const commaSplit = quiz.options.split(',').map(o => o.trim()).filter(o => o);
+      if (commaSplit.length > 1) {
+        return commaSplit;
       }
+      
       // Fallback: return as single option
       return [quiz.options];
     }

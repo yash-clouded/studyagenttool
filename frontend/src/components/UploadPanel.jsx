@@ -6,6 +6,22 @@ export default function UploadPanel({ files = [], setFiles = () => {}, onDone })
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef(null);
 
+  const getFileIcon = (fileName) => {
+    const ext = fileName.split('.').pop().toLowerCase();
+    const iconMap = {
+      'pdf': '📕',
+      'pptx': '🎯',
+      'docx': '📄',
+      'txt': '📝',
+      'png': '🖼️',
+      'jpg': '🖼️',
+      'jpeg': '🖼️',
+      'gif': '🖼️',
+      'bmp': '🖼️',
+    };
+    return iconMap[ext] || '📄';
+  };
+
   const handleDragOver = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -24,8 +40,29 @@ export default function UploadPanel({ files = [], setFiles = () => {}, onDone })
   };
 
   const addFiles = (newFiles) => {
-    const pdfFiles = newFiles.filter(f => f.type === "application/pdf" || f.name.endsWith(".pdf"));
-    setFiles(prev => [...prev, ...pdfFiles]);
+    // Support PDF, Office documents, text files, and images for handwritten notes
+    const supportedExtensions = ['.pdf', '.pptx', '.docx', '.txt', '.png', '.jpg', '.jpeg', '.gif', '.bmp'];
+    const supportedTypes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain',
+      'image/png',
+      'image/jpeg',
+      'image/gif',
+      'image/bmp'
+    ];
+    
+    const validFiles = newFiles.filter(f => {
+      const ext = '.' + f.name.split('.').pop().toLowerCase();
+      return supportedExtensions.includes(ext) || supportedTypes.includes(f.type);
+    });
+    
+    if (validFiles.length < newFiles.length) {
+      alert(`⚠️ Some files were skipped. Supported formats: PDF, PPTX, DOCX, TXT, PNG, JPG, GIF, BMP`);
+    }
+    
+    setFiles(prev => [...prev, ...validFiles]);
   };
 
   const removeFile = (index) => {
@@ -74,15 +111,15 @@ export default function UploadPanel({ files = [], setFiles = () => {}, onDone })
       <div style={styles.header}>
         <h1 style={styles.title}>Empower Your Learning with AI</h1>
         <p style={styles.subtitle}>
-          Upload your notes and PDF slides, and let StudyBuddy AI transform them into
-          personalized flashcards, quizzes, and revision plans.
+          Upload your PDF slides, PowerPoint presentations, Word documents, text notes, or handwritten notes 
+          (as images), and let StudyBuddy AI transform them into personalized flashcards, quizzes, and revision plans.
         </p>
       </div>
 
       <div style={styles.uploadSection}>
         <h2 style={styles.sectionTitle}>Upload Your Study Materials</h2>
         <p style={styles.sectionSubtitle}>
-          Drag and drop your files here, or click to browse. Supported formats: PDF, DOCX, PPTX, TXT.
+          Drag and drop your files here, or click to browse. Supported formats: PDF, PPTX, DOCX, TXT, PNG, JPG, GIF, BMP.
         </p>
 
         <div 
@@ -108,7 +145,7 @@ export default function UploadPanel({ files = [], setFiles = () => {}, onDone })
           ref={fileInputRef}
           type="file"
           multiple
-          accept=".pdf,.docx,.pptx,.txt"
+          accept=".pdf,.docx,.pptx,.txt,.png,.jpg,.jpeg,.gif,.bmp,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/png,image/jpeg,image/gif,image/bmp"
           onChange={handleFileInput}
           style={{ display: "none" }}
         />
@@ -120,7 +157,7 @@ export default function UploadPanel({ files = [], setFiles = () => {}, onDone })
               {files.map((file, idx) => (
                 <div key={idx} style={styles.fileItem}>
                   <div style={styles.fileInfo}>
-                    <span style={styles.fileIcon}>📄</span>
+                    <span style={styles.fileIcon}>{getFileIcon(file.name)}</span>
                     <span style={styles.fileName}>{file.name}</span>
                   </div>
                   <button

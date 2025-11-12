@@ -28,5 +28,11 @@ pydantic>=2.0
 python-dotenv
 requests
 
+# Document Processing - for slides, notes, and office files
+python-pptx>=0.6.21          # PowerPoint (.pptx) support
+python-docx>=0.8.11          # Word documents (.docx) support
+pytesseract>=0.3.10          # OCR for handwritten notes and images
+Pillow>=9.0.0                # Image processing for OCR
+
 # Optional but recommended
 certifi

@@ -143,23 +143,38 @@ def create_faiss_from_chunks(chunks):
 
 @app.post("/upload_pdf")
 async def upload_pdf(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDFs allowed")
+    """
+    Upload and process study materials.
+    Supports: PDF, PowerPoint (.pptx), Word (.docx), Text (.txt), and Images (handwritten notes).
+    """
+    # Allowed file extensions
+    allowed_extensions = {'.pdf', '.pptx', '.docx', '.txt', '.png', '.jpg', '.jpeg', '.gif', '.bmp'}
+    
+    file_ext = os.path.splitext(file.filename)[1].lower()
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Unsupported file format: {file_ext}. Allowed: {', '.join(allowed_extensions)}"
+        )
+    
     tmp_path = f"./outputs/{file.filename}"
     with open(tmp_path, "wb") as f:
         content = await file.read()
         f.write(content)
 
-    chunks = reader.read_pdf(tmp_path)
-    print("reader agent is successfully read and chunked the PDF, total chunks:", len(chunks))
+    # Process the file - works for all supported formats
+    chunks = reader.read_file(tmp_path)
+    print(f"Reader agent successfully processed {file.filename}, total chunks: {len(chunks)}")
+    
     # Build vector store
     db = create_faiss_from_chunks(chunks)
     print("FAISS index created at", FAISS_INDEX_PATH)
+    
     # Save a simple summary (first 3 chunks)
-    summary = {"chunks_count": len(chunks), "sample": chunks[:3]}
+    summary = {"chunks_count": len(chunks), "sample": chunks[:3], "source_file": file.filename}
     store_json(summary, "./outputs/reader_summary.json")
     print("Reader summary saved.")
-    return {"status": "ok", "chunks": len(chunks)}
+    return {"status": "ok", "chunks": len(chunks), "file": file.filename}
 
 @app.post("/generate_all")
 async def generate_all():
