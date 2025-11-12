@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { submitAnswer } from "../api";
 
 export default function Quizzes({ quizzes }){
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -86,12 +87,23 @@ export default function Quizzes({ quizzes }){
   };
 
   const handleSubmitAnswer = () => {
-    if(selectedAnswers[currentIndex] === undefined) {
+    if (selectedAnswers[currentIndex] === undefined) {
       alert("Please select an option before submitting.");
       return;
     }
-    
+
     const isCorrect = selectedAnswers[currentIndex] === correctAnswer;
+
+    // Submit answer to backend for adaptive learning
+    if (current && current.source_chunk) {
+      submitAnswer({
+        source_chunk: current.source_chunk,
+        is_correct: isCorrect,
+      })
+        .then(() => console.log(`Answer submitted for chunk: ${isCorrect}`))
+        .catch((err) => console.error("Could not submit answer", err));
+    }
+
     setShowResults(true);
     setSubmitted(true);
   };

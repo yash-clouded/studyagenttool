@@ -4,35 +4,37 @@ uvicorn[standard]
 python-multipart
 aiofiles
 
-# LLM & Embeddings - LangChain 1.0.5
-langchain==1.0.5
-langchain-core==1.0.4
-langchain-community==0.4.1
-langchain-text-splitters==1.0.0
-langchain-openai==1.0.2
-langchain-google-genai==3.0.2
+# LLM & Embeddings - LangChain
+langchain
+langchain-core
+langchain-community
+langchain-text-splitters
+langchain-openai
+langchain-google-genai
 
 # Vector Store & Embeddings
 faiss-cpu
 tiktoken
 
 # LLM Providers
-ollama==0.6.0
-google-generativeai==0.7.0
-openai>=1.0.0
+ollama
+openai
 
 # Data Processing
 pymupdf
 tqdm
-pydantic>=2.0
+pydantic
 python-dotenv
 requests
 
 # Document Processing - for slides, notes, and office files
-python-pptx>=0.6.21          # PowerPoint (.pptx) support
-python-docx>=0.8.11          # Word documents (.docx) support
-pytesseract>=0.3.10          # OCR for handwritten notes and images
-Pillow>=9.0.0                # Image processing for OCR
+python-pptx
+python-docx
+pytesseract
+Pillow
+
+# Calendar Integration
+icalendar
 
 # Optional but recommended
 certifi

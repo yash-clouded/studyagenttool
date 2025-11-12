@@ -90,15 +90,19 @@ class ChatAgent:
             self.llm = llm
         
         self.faiss_index_path = faiss_index_path
-        # FAISS will be loaded outside — we accept a retriever during run
 
     def build_chain(self, retriever):
-        # Simple conversational chain using retriever + LLM
-        # For newer LangChain versions without ConversationalRetrievalChain
-        system_prompt = """You are a helpful study assistant. Use the provided context to answer questions.
-If you don't know the answer from the context, say so."""
+        system_prompt = """You are a helpful study assistant. Your goal is to provide clear, concise, and comprehensive answers based on the provided context.
+
+When answering, please follow these guidelines:
+1.  **Direct Answer:** Start with a direct answer to the user's question. Do not repeat the question.
+2.  **Explanation:** If the topic is complex, provide a brief explanation.
+3.  **Example:** If applicable, include a simple example to illustrate the concept.
+4.  **Be Concise:** Do not repeat yourself or provide redundant information.
+
+If you don't know the answer from the context, simply state that the information is not available in the provided materials.
+"""
         
-        # Simple chain: retriever context + prompt + LLM
         class SimpleConversationalChain:
             def __init__(self, llm, retriever, system_prompt):
                 self.llm = llm
@@ -106,16 +110,12 @@ If you don't know the answer from the context, say so."""
                 self.system_prompt = system_prompt
             
             def __call__(self, *args, **kwargs):
-                print("***ChatAgent SimpleConversationalChain called...")
                 question = kwargs.get("question") or (args[0] if args else "")
                 chat_history = kwargs.get("chat_history", [])
-                print(f"***ChatAgent question: {question}")
-                print(f"***ChatAgent chat_history: {chat_history}") 
-                # Retrieve relevant docs using modern .invoke() instead of deprecated .get_relevant_documents()
+                
                 docs = self.retriever.invoke(question)
                 context = "\n".join([doc.page_content for doc in docs])
-                print(f"***ChatAgent retrieved context: {context}")
-                # Build prompt
+                
                 messages = [
                     {"role": "system", "content": self.system_prompt},
                 ]
@@ -124,13 +124,12 @@ If you don't know the answer from the context, say so."""
                         messages.append({"role": "user", "content": q})
                         messages.append({"role": "assistant", "content": a})
                 
-                messages.append({"role": "user", "content": f"Context: {context}\n\nQuestion: {question}"})
+                messages.append({"role": "user", "content": f"Based on the following context, please answer the question.\n\nContext:\n---\n{context}\n---\n\nQuestion: {question}"})
                 
-                # Get response using modern .invoke() instead of deprecated __call__
                 response = self.llm.invoke(messages)
-                print(f"***ChatAgent LLM response: {response}")
+                
                 return {
-                    "output_text": response.content if hasattr(response, 'content') else str(response),
+                    "answer": response.content if hasattr(response, 'content') else str(response),
                     "source_documents": docs
                 }
         

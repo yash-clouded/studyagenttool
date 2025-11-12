@@ -1,9 +1,11 @@
-# main.py
+
 import os
 import json
+import asyncio
 from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 from agents.reader import ReaderAgent
 from agents.flashcard import FlashcardAgent
 from agents.quiz import QuizAgent
@@ -13,303 +15,175 @@ from agents.chat_agent import ChatAgent
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import OllamaEmbeddings
-from langchain_text_splitters import CharacterTextSplitter
 from langchain_core.documents import Document
+from langchain_community.embeddings import OllamaEmbeddings
 
 from dotenv import load_dotenv
-import sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from utils.google_llm import create_google_llm
-from utils.ollama_llm import create_ollama_llm
 
-# Load environment variables from .env file explicitly
-# Try root .env first, then backend/.env
-backend_dir = os.path.dirname(os.path.abspath(__file__))
-root_env_path = os.path.join(backend_dir, '..', '.env')
-backend_env_path = os.path.join(backend_dir, '.env')
-
-if os.path.exists(root_env_path):
-    load_dotenv(dotenv_path=root_env_path)
-elif os.path.exists(backend_env_path):
-    load_dotenv(dotenv_path=backend_env_path)
-
-# Check for API keys and LLM preferences
-GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-USE_OLLAMA = os.environ.get("USE_OLLAMA", "false").lower() == "true"
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "mistral")
-OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-
-FAISS_INDEX_PATH = os.environ.get("FAISS_INDEX_PATH", "./outputs/faiss_index")
-
+# --- App Initialization ---
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
 
-# instantiate agents
-reader = ReaderAgent()
+# --- Environment and API Key Loading ---
+backend_dir = os.path.dirname(os.path.abspath(__file__))
+root_dir = os.path.dirname(backend_dir)
+env_path = os.path.join(root_dir, '.env')
+load_dotenv(dotenv_path=env_path)
 
-# Three-tier LLM provider selection with automatic fallback:
-# 1. Primary: Ollama (local, free, no API keys needed)
-# 2. Secondary: Google Gemini (cheap, free tier available)
-# 3. Tertiary: OpenAI (paid, as last resort)
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "mistral")
 
+FAISS_INDEX_PATH = os.environ.get("FAISS_INDEX_PATH", "./outputs/faiss_index")
+
+# --- LLM and Embeddings Initialization (Ollama first) ---
 llm = None
 embeddings = None
-active_provider = None
+active_provider = "None"
 
-# Tier 1: Try Ollama first (if enabled or available)
-if USE_OLLAMA or True:  # Always try Ollama first
-    try:
-        print(f"🔵 Attempting Tier 1 (Ollama) with model: {OLLAMA_MODEL}")
-        llm = create_ollama_llm(model=OLLAMA_MODEL)
-        # Use Ollama embeddings (local, free, no quota limits!)
-        embeddings = OllamaEmbeddings(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL)
-        active_provider = "Ollama"
-        print(f"✅ SUCCESS: Using Ollama as LLM provider with model: {OLLAMA_MODEL}")
-        print(f"📊 Embedding Model: Ollama Embeddings (local, zero quota cost!)")
-    except Exception as e:
-        print(f"❌ Ollama Tier 1 failed: {e}")
-        llm = None
-        embeddings = None
+# Tier 1: Ollama
+try:
+    from utils.ollama_llm import create_ollama_llm
+    llm = create_ollama_llm(model=OLLAMA_MODEL)
+    embeddings = OllamaEmbeddings(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL)
+    active_provider = "Ollama"
+    print("✅ Using Ollama as primary LLM provider.")
+except Exception as e:
+    print(f"Ollama initialization failed: {e}. Falling back...")
 
-# Tier 2: If Ollama failed, try Google Gemini
-if llm is None and GOOGLE_API_KEY:
+# Tier 2: Google Gemini
+if not llm and GOOGLE_API_KEY:
     try:
-        print(f"🔵 Attempting Tier 2 (Google Gemini)")
-        llm = create_google_llm()
-        embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+        from utils.google_llm import create_google_llm
+        llm = create_google_llm(api_key=GOOGLE_API_KEY)
+        embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=GOOGLE_API_KEY)
         active_provider = "Google Gemini"
-        print(f"✅ SUCCESS: Using Google Gemini as LLM provider")
-        print(f"📊 Embedding Model: Google Embeddings (models/embedding-001)")
+        print("✅ Using Google Gemini as fallback LLM provider.")
     except Exception as e:
-        print(f"❌ Google Gemini Tier 2 failed: {e}")
-        llm = None
-        embeddings = None
+        print(f"Google Gemini initialization failed: {e}. Falling back...")
 
-# Tier 3: If Google failed, try OpenAI
-if llm is None and OPENAI_API_KEY:
+# Tier 3: OpenAI
+if not llm and OPENAI_API_KEY:
     try:
-        print(f"🔵 Attempting Tier 3 (OpenAI)")
-        llm = ChatOpenAI(model_name=os.environ.get("LLM_MODEL", "gpt-4o-mini"), temperature=0.1)
-        embeddings = OpenAIEmbeddings()
+        llm = ChatOpenAI(model_name=os.environ.get("LLM_MODEL", "gpt-4o-mini"), temperature=0.1, api_key=OPENAI_API_KEY)
+        embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
         active_provider = "OpenAI"
-        print(f"✅ SUCCESS: Using OpenAI as LLM provider")
-        print(f"📊 Embedding Model: OpenAI Embeddings")
+        print("✅ Using OpenAI as final fallback LLM provider.")
     except Exception as e:
-        print(f"❌ OpenAI Tier 3 failed: {e}")
-        llm = None
-        embeddings = None
+        print(f"OpenAI initialization failed: {e}")
 
-# If all tiers failed, raise error
-if llm is None:
-    error_msg = (
-        "❌ All LLM providers unavailable:\n"
-        "  • Ollama: Not running or inaccessible\n"
-        "  • Google Gemini: GOOGLE_API_KEY not set\n"
-        "  • OpenAI: OPENAI_API_KEY not set\n"
-        "Please ensure at least one provider is available."
-    )
-    print(error_msg)
-    raise Exception(error_msg)
+if not llm:
+    raise RuntimeError("FATAL: All LLM providers failed to initialize. Please check your configurations.")
 
-print(f"\n🎯 Active Provider: {active_provider}")
-print(f"📊 Embedding Model: {embeddings.__class__.__name__}\n")
+print(f"\n🎯 Active LLM Provider: {active_provider}\n")
 
-# Instantiate agents - they will use the LLM we created
+# --- Agent Instantiation ---
+reader = ReaderAgent()
 flash_agent = FlashcardAgent(llm=llm)
 quiz_agent = QuizAgent(llm=llm)
 planner_agent = PlannerAgent()
 chat_agent = ChatAgent(faiss_index_path=FAISS_INDEX_PATH, llm=llm, embeddings=embeddings)
 
-# helper: persist outputs
+# --- In-Memory Stores and Helpers ---
+accuracy_store = {}
 os.makedirs("./outputs", exist_ok=True)
 
 def store_json(obj, path):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False, indent=2)
 
-def create_faiss_from_chunks(chunks):
-    docs = [Document(page_content=c) for c in chunks]
-    # Create vectorstore
-    db = FAISS.from_documents(docs, embeddings)
-    db.save_local(FAISS_INDEX_PATH)
-    return db
-
+# --- API Endpoints ---
 @app.post("/upload_pdf")
 async def upload_pdf(file: UploadFile = File(...)):
-    """
-    Upload and process study materials.
-    Supports: PDF, PowerPoint (.pptx), Word (.docx), Text (.txt), and Images (handwritten notes).
-    """
-    # Allowed file extensions
-    allowed_extensions = {'.pdf', '.pptx', '.docx', '.txt', '.png', '.jpg', '.jpeg', '.gif', '.bmp'}
-    
-    file_ext = os.path.splitext(file.filename)[1].lower()
-    if file_ext not in allowed_extensions:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Unsupported file format: {file_ext}. Allowed: {', '.join(allowed_extensions)}"
-        )
-    
     tmp_path = f"./outputs/{file.filename}"
     with open(tmp_path, "wb") as f:
-        content = await file.read()
-        f.write(content)
-
-    # Process the file - works for all supported formats
+        f.write(await file.read())
+    
     chunks = reader.read_file(tmp_path)
-    print(f"Reader agent successfully processed {file.filename}, total chunks: {len(chunks)}")
-    
-    # Build vector store
-    db = create_faiss_from_chunks(chunks)
-    print("FAISS index created at", FAISS_INDEX_PATH)
-    
-    # Save a simple summary (first 3 chunks)
-    summary = {"chunks_count": len(chunks), "sample": chunks[:3], "source_file": file.filename}
-    store_json(summary, "./outputs/reader_summary.json")
-    print("Reader summary saved.")
-    return {"status": "ok", "chunks": len(chunks), "file": file.filename}
+    db = FAISS.from_documents([Document(page_content=c) for c in chunks], embeddings)
+    db.save_local(FAISS_INDEX_PATH)
+    store_json({"chunks_count": len(chunks)}, "./outputs/reader_summary.json")
+    return {"status": "ok"}
 
-@app.post("/generate_all")
+@app.get("/generate_all")
 async def generate_all():
-    # expects FAISS index to be present
-    if not os.path.exists(FAISS_INDEX_PATH):
-        raise HTTPException(status_code=400, detail="No uploaded materials found. Upload a PDF first.")
-    # load index
-    # We create the index ourselves, so allow deserialization of the pickled
-    # docstore/index mapping when loading. Only enable this if you trust the
-    # local `outputs` files (they were created by this app).
-    db = FAISS.load_local(FAISS_INDEX_PATH, embeddings, allow_dangerous_deserialization=True)
-    print("***FAISS index loaded.")
-    # retrieve raw chunks
-    docs = db._get_docs(list(range(db.index.ntotal))) if hasattr(db, "_get_docs") else None
-    # fallback: we saved reader_summary.json
-    print("***Retrieving chunks for generation...")
-    try:
-        with open("./outputs/reader_summary.json") as f:
-            r = json.load(f)
-            chunks = r.get("sample", [])
-    except Exception:
-        chunks = []
+    async def generator():
+        if not os.path.exists(FAISS_INDEX_PATH):
+            yield f"data: {json.dumps({'error': 'No materials uploaded.'})}\n\n"
+            return
+        
+        db = FAISS.load_local(FAISS_INDEX_PATH, embeddings, allow_dangerous_deserialization=True)
+        chunks = [d.page_content for d in db.docstore._dict.values()]
 
-    # If chunks empty, retrieve a handful by doing a query-less scan (FAISS wrapper doesn't expose docs easily)
-    # For MVP we'll ask user to re-upload if we can't access chunks
-    if not chunks:
-        raise HTTPException(status_code=500, detail="Could not load chunks from index. Re-upload PDF.")
-    print(f"***Generating flashcards and quizzes from {len(chunks)} chunks...")
-    flashcards = flash_agent.generate_from_chunks(chunks)
-    print(f"***Generated {len(flashcards)} flashcards.")
-    quizzes = quiz_agent.generate_from_chunks(chunks)
-    print(f"***Generated {len(quizzes)} quizzes.")
-    # simple topic list: get first lines of chunks as topics (naive)
-    topics = []
-    for c in chunks:
-        first_line = c.split("\n")[0][:80]
-        topics.append(first_line or "Topic")
+        yield f"data: {json.dumps({'message': 'Generating flashcards...', 'progress': 10})}\n\n"
+        await asyncio.sleep(0.1)
+        flashcards = flash_agent.generate_from_chunks(chunks)
+        store_json(flashcards, "./outputs/flashcards.json")
+        
+        yield f"data: {json.dumps({'message': 'Generating quizzes...', 'progress': 50})}\n\n"
+        await asyncio.sleep(0.1)
+        difficult_chunks = [c for c, s in accuracy_store.items() if s["incorrect"] > s["correct"]]
+        quizzes = quiz_agent.generate_from_chunks(chunks + difficult_chunks)
+        store_json(quizzes, "./outputs/quizzes.json")
 
-    planner = planner_agent.plan_topics(topics)
+        yield f"data: {json.dumps({'message': 'Creating study plan...', 'progress': 90})}\n\n"
+        await asyncio.sleep(0.1)
+        all_topics = [c.split("\n")[0][:80] or "Topic" for c in chunks]
+        planner = planner_agent.create_revision_schedule(all_topics, accuracy_store)
+        store_json(planner, "./outputs/planner.json")
 
-    store_json(flashcards, "./outputs/flashcards.json")
-    store_json(quizzes, "./outputs/quizzes.json")
-    store_json(planner, "./outputs/planner.json")
+        yield f"data: {json.dumps({'message': 'Complete!', 'progress': 100})}\n\n"
 
-    return {"flashcards": len(flashcards), "quizzes": len(quizzes), "plan_items": len(planner)}
+    return StreamingResponse(generator(), media_type="text/event-stream")
 
 @app.get("/flashcards")
 async def get_flashcards():
-    p = "./outputs/flashcards.json"
-    if not os.path.exists(p):
-        return JSONResponse(content=[])
-    try:
-        with open(p) as f:
-            data = json.load(f)
-    except (json.JSONDecodeError, ValueError):
-        # empty or invalid JSON -> treat as no flashcards
-        return JSONResponse(content=[])
-    except Exception as e:
-        # unexpected error reading the file
-        raise HTTPException(status_code=500, detail=f"Error reading flashcards: {e}")
-    return JSONResponse(content=data)
+    if not os.path.exists("./outputs/flashcards.json"): return []
+    with open("./outputs/flashcards.json") as f: return json.load(f)
 
 @app.get("/quizzes")
 async def get_quizzes():
-    p = "./outputs/quizzes.json"
-    if not os.path.exists(p):
-        return JSONResponse(content=[])
-    try:
-        with open(p) as f:
-            data = json.load(f)
-    except (json.JSONDecodeError, ValueError):
-        # empty or invalid JSON -> treat as no quizzes
-        return JSONResponse(content=[])
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error reading quizzes: {e}")
-    return JSONResponse(content=data)
+    if not os.path.exists("./outputs/quizzes.json"): return []
+    with open("./outputs/quizzes.json") as f: return json.load(f)
 
 @app.get("/planner")
 async def get_planner():
-    p = "./outputs/planner.json"
-    if not os.path.exists(p):
-        return JSONResponse(content=[])
-    try:
-        with open(p) as f:
-            data = json.load(f)
-    except (json.JSONDecodeError, ValueError):
-        # empty or invalid JSON -> treat as no planner items
-        return JSONResponse(content=[])
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error reading planner: {e}")
-    return JSONResponse(content=data)
+    if not os.path.exists("./outputs/planner.json"): return []
+    with open("./outputs/planner.json") as f: return json.load(f)
 
-from pydantic import BaseModel, Field
-
+@app.get("/download_plan")
+async def download_plan():
+    if not os.path.exists("./outputs/planner.json"): raise HTTPException(404, "Plan not found.")
+    with open("./outputs/planner.json") as f: plan = json.load(f)
+    return Response(planner_agent.to_ics(plan), media_type="text/calendar", headers={"Content-Disposition": "attachment; filename=plan.ics"})
 
 class ChatRequest(BaseModel):
     question: str
-    # Use a factory for the default to avoid sharing a mutable default between requests
     chat_history: list = Field(default_factory=list)
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
-    if not os.path.exists(FAISS_INDEX_PATH):
-        raise HTTPException(status_code=400, detail="No index found. Upload PDF first.")
-    # Allow dangerous deserialization for the same reason as above: the index
-    # was created locally by this service. Do NOT enable this if loading files
-    # from untrusted sources.
-    print("***Loading FAISS index for chat...")
+    if not os.path.exists(FAISS_INDEX_PATH): raise HTTPException(400, "Index not found.")
     db = FAISS.load_local(FAISS_INDEX_PATH, embeddings, allow_dangerous_deserialization=True)
-    print("***FAISS index loaded for chat.")
-    retriever = db.as_retriever(search_kwargs={"k": 3})
-    print("***Building chat chain...")
+    retriever = db.as_retriever()
     chain = chat_agent.build_chain(retriever)
-    inputs = {"question": req.question, "chat_history": req.chat_history}
-    print(f"***Chat inputs: {inputs}")
-    # Validate and run the chain; provide a clearer error if inputs are wrong
-    try:
-        res = chain(inputs)
-        print(f"***Chat chain result: {res}")
-    except ValueError as e:
-        # Include expected vs provided keys to help debugging
-        expected = getattr(chain, "input_keys", None)
-        provided = list(inputs.keys())
-        msg = f"Chain input validation error: {e}. expected_keys={expected}, provided_keys={provided}"
-        raise HTTPException(status_code=400, detail=msg)
-    except Exception as e:
-        print(f"***Chat chain unexpected error: {e}")
-        raise HTTPException(status_code=500, detail=f"Error during chat processing: {e}")
-    answer = res.get("output_text") or res.get("answer")
-    print(f"***Chat answer: {answer}")
-    docs = res.get("source_documents", [])
-    sources = [d.page_content[:400] for d in docs]
-    return {"answer": answer, "sources": sources}
+    res = chain({"question": req.question, "chat_history": req.chat_history})
+    return {"answer": res.get("answer"), "sources": [d.page_content for d in res.get("source_documents", [])]}
 
-# simple health
-@app.get("/health")
-def health():
+class AnswerRequest(BaseModel):
+    source_chunk: str
+    is_correct: bool
+
+@app.post("/submit_answer")
+async def submit_answer(req: AnswerRequest):
+    accuracy_store.setdefault(req.source_chunk, {"correct": 0, "incorrect": 0})
+    if req.is_correct: accuracy_store[req.source_chunk]["correct"] += 1
+    else: accuracy_store[req.source_chunk]["incorrect"] += 1
     return {"status": "ok"}
+
+@app.get("/health")
+def health(): return {"status": "ok"}

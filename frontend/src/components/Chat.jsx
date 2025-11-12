@@ -3,7 +3,6 @@ import { sendChat } from "../api";
 
 export default function Chat(){
   const [q, setQ] = useState("");
-  const [ans, setAns] = useState("");
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState([]);
   const historyEndRef = useRef(null);
@@ -14,24 +13,23 @@ export default function Chat(){
 
   useEffect(() => {
     scrollToBottom();
-  }, [history, ans]);
+  }, [history]);
 
   const ask = async () => {
     if(!q.trim()) return;
-    
+
     const userQuestion = q;
+    setHistory(h => [...h, { from: "user", text: userQuestion }]);
     setQ("");
-    setAns("");
     setLoading(true);
     
     try{
-      const res = await sendChat({ question: userQuestion, chat_history: history });
+      const res = await sendChat({ question: userQuestion, chat_history: history.filter(h => h.from === 'assistant').map(h => [h.q, h.text]) });
       const answer = res.data.answer;
-      setAns(answer);
-      setHistory(h => [...h, [userQuestion, answer]]);
+      setHistory(h => [...h, { from: "assistant", text: answer, q: userQuestion }]);
     }catch(e){
       console.error(e);
-      setAns("❌ Error contacting server. Please try again.");
+      setHistory(h => [...h, { from: "assistant", text: "❌ Error contacting server. Please try again." }]);
     } finally {
       setLoading(false);
     }
@@ -55,39 +53,16 @@ export default function Chat(){
           </div>
         )}
         {history.map((h, i) => (
-          <div key={i} style={styles.messagePair}>
-            <div style={styles.userMessage}>
-              <div style={styles.messageBubble}>
-                <p style={styles.messageText}>{h[0]}</p>
-              </div>
-            </div>
-            <div style={styles.assistantMessage}>
-              <div style={styles.messageBubble}>
-                <p style={styles.messageText}>{h[1]}</p>
-              </div>
+          <div key={i} style={h.from === 'user' ? styles.userMessage : styles.assistantMessage}>
+            <div style={h.from === 'user' ? styles.userMessageBubble : styles.assistantMessageBubble}>
+              <p style={styles.messageText}>{h.text}</p>
             </div>
           </div>
         ))}
-        {ans && loading === false && (
-          <div style={styles.messagePair}>
-            <div style={styles.userMessage}>
-              <div style={styles.messageBubble}>
-                <p style={styles.messageText}>{history[history.length - 1]?.[0]}</p>
-              </div>
-            </div>
-            <div style={styles.assistantMessage}>
-              <div style={styles.messageBubble}>
-                <p style={styles.messageText}>{ans}</p>
-              </div>
-            </div>
-          </div>
-        )}
         {loading && (
-          <div style={styles.messagePair}>
-            <div style={styles.assistantMessage}>
-              <div style={styles.messageBubble}>
-                <p style={styles.messageText}>⏳ Thinking...</p>
-              </div>
+          <div style={styles.assistantMessage}>
+            <div style={styles.assistantMessageBubble}>
+              <p style={styles.messageText}>⏳ Thinking...</p>
             </div>
           </div>
         )}
@@ -143,9 +118,6 @@ const styles = {
     padding: "40px 20px",
     fontSize: "14px",
   },
-  messagePair: {
-    marginBottom: "16px",
-  },
   userMessage: {
     display: "flex",
     justifyContent: "flex-end",
@@ -156,11 +128,18 @@ const styles = {
     justifyContent: "flex-start",
     marginBottom: "8px",
   },
-  messageBubble: {
+  userMessageBubble: {
     maxWidth: "80%",
     padding: "12px 16px",
     borderRadius: "8px",
-    backgroundColor: "#e8f0ff",
+    backgroundColor: "#3b82f6",
+    color: "#fff",
+  },
+  assistantMessageBubble: {
+    maxWidth: "80%",
+    padding: "12px 16px",
+    borderRadius: "8px",
+    backgroundColor: "#eff6ff",
     color: "#1a1a1a",
   },
   messageText: {
@@ -186,7 +165,7 @@ const styles = {
   },
   sendButton: {
     padding: "12px 24px",
-    backgroundColor: "#0066ff",
+    backgroundColor: "#3b82f6",
     color: "white",
     border: "none",
     borderRadius: "6px",

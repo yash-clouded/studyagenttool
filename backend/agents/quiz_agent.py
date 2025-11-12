@@ -1,4 +1,4 @@
-# quiz.py
+# quiz_agent.py
 import json
 import re
 from langchain_core.prompts import PromptTemplate
@@ -73,7 +73,7 @@ class QuizAgent:
         print("***QuizAgent generating from chunks...")
         out = []
         for c in chunks:
-            print("***QuizAgent processing chunk...")
+            print(f"***QuizAgent processing chunk...")
             try:
                 if self.chain is None:
                     resp = self.llm.predict(QUIZ_PROMPT.replace("{chunk}", c))
@@ -81,10 +81,12 @@ class QuizAgent:
                     result = self.chain.invoke({"chunk": c})
                     resp = result.content if hasattr(result, 'content') else str(result)
             except Exception as e:
-                print("***QuizAgent exception during prediction/invocation", e)
+                print(f"***QuizAgent exception during prediction/invocation: {e}")
                 resp = ""
+            
             text = self._response_to_text(resp)
             print(f"***QuizAgent processed text: {text}")
+
             try:
                 parsed = json.loads(text)
                 if isinstance(parsed, list):

@@ -11,11 +11,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.google_llm import create_google_llm
 
 FLASH_PROMPT = """You are a flashcard generator.
-Given the following text chunk, produce between 1 and 6 question-answer pairs and return them as a valid JSON array (only the JSON array, nothing else).
+Given the following text chunk, produce between 1 and 6 question-answer pairs and return them as a valid JSON array.
 
 Requirements:
 - Output must be a valid JSON array using double quotes only.
-- Each item must be an object with exactly two keys: "question" and "answer".
+- Each item must be an object with three keys: "question", "answer", and "explanation".
+- The "explanation" should provide additional context or clarify the answer.
 - Keep questions concise (<= 120 characters) and answers concise (<= 400 characters).
 - Do NOT include any explanatory text, markdown, or code fences — output only the JSON array.
 - If no suitable Q/A can be produced, return an empty array: []
@@ -23,8 +24,11 @@ Requirements:
 
 Example output:
 [
-    {{"question": "What is X?", "answer": "X is ..."}},
-    {{"question": "How does Y work?", "answer": "Y works by ..."}}
+    {{
+        "question": "What is the capital of France?",
+        "answer": "Paris",
+        "explanation": "Paris is the capital and most populous city of France."
+    }}
 ]
 
 Text to use for generating flashcards:

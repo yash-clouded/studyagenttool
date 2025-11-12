@@ -1,7 +1,21 @@
 import React, { useState } from "react";
+import { downloadPlan } from "../api";
 
 export default function Planner({ plan }){
   const [currentWeek, setCurrentWeek] = useState(0);
+
+  const handleDownload = () => {
+    downloadPlan()
+      .then(response => {
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', 'revision_plan.ics');
+        document.body.appendChild(link);
+        link.click();
+      })
+      .catch(err => console.error("Download failed", err));
+  };
 
   if(!plan || plan.length === 0) {
     return (
@@ -14,10 +28,7 @@ export default function Planner({ plan }){
   // Parse plan items and organize by week
   const today = new Date();
   const plannedDays = plan.map((p, i) => {
-    const date = new Date(today);
-    // Assuming revise_on is a day offset or date string
-    const dayOffset = i; // Simplified: distribute over time
-    date.setDate(date.getDate() + dayOffset);
+    const date = new Date(p.revise_on);
     return {
       ...p,
       date,
@@ -54,7 +65,10 @@ export default function Planner({ plan }){
 
   return (
     <div style={styles.container}>
-      <h2 style={styles.title}>Revision Plan</h2>
+      <div style={styles.header}>
+        <h2 style={styles.title}>Revision Plan</h2>
+        <button onClick={handleDownload} style={styles.downloadButton}>Download Schedule</button>
+      </div>
 
       {/* Progress Summary */}
       <div style={styles.summaryBox}>
@@ -167,12 +181,28 @@ const styles = {
     margin: "40px auto",
     padding: "20px",
   },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "24px",
+  },
   title: {
     fontSize: "28px",
     fontWeight: "700",
     color: "#1a1a1a",
-    marginBottom: "24px",
-    margin: "0 0 24px 0",
+    margin: "0",
+  },
+  downloadButton: {
+    padding: "10px 20px",
+    backgroundColor: "#0066ff",
+    color: "white",
+    border: "none",
+    borderRadius: "6px",
+    fontSize: "14px",
+    fontWeight: "600",
+    cursor: "pointer",
+    transition: "all 0.2s ease",
   },
   summaryBox: {
     backgroundColor: "#f9f9f9",

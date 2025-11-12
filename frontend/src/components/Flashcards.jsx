@@ -37,6 +37,12 @@ export default function Flashcards({ cards }){
               <div>
                 <p style={styles.cardLabel}>Answer</p>
                 <p style={styles.cardText}>{current.answer}</p>
+                {current.explanation && (
+                  <>
+                    <hr style={styles.divider} />
+                    <p style={styles.explanationText}>{current.explanation}</p>
+                  </>
+                )}
               </div>
             ) : (
               <div>
@@ -136,6 +142,18 @@ const styles = {
     color: "#1a1a1a",
     lineHeight: "1.6",
     margin: "0",
+  },
+  explanationText: {
+    fontSize: "14px",
+    fontStyle: "italic",
+    color: "#555",
+    marginTop: "16px",
+    lineHeight: "1.5",
+  },
+  divider: {
+    border: "none",
+    borderTop: "1px solid #ddd",
+    margin: "20px 0",
   },
   controls: {
     display: "flex",

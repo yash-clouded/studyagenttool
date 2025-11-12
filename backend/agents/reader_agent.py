@@ -1,10 +1,9 @@
 import os
+import fitz  # PyMuPDF
 from pptx import Presentation
 from docx import Document
 import pytesseract
 from PIL import Image
-
-# Add other necessary imports for PDF processing, if a library is available in requirements.txt
 
 class ReaderAgent:
     def extract_content(self, file_path):
@@ -14,17 +13,28 @@ class ReaderAgent:
         _, file_extension = os.path.splitext(file_path)
         file_extension = file_extension.lower()
 
-        if file_extension == ".pptx":
+        if file_extension == ".pdf":
+            return self._extract_text_from_pdf(file_path)
+        elif file_extension == ".pptx":
             return self._extract_text_from_pptx(file_path)
         elif file_extension == ".docx":
             return self._extract_text_from_docx(file_path)
         elif file_extension in [".png", ".jpg", ".jpeg"]:
             return self._extract_text_from_image(file_path)
-        # Add PDF handling here
-        # elif file_extension == ".pdf":
-        #     return self._extract_text_from_pdf(file_path)
         else:
             print(f"Unsupported file type: {file_extension}")
+            return ""
+
+    def _extract_text_from_pdf(self, file_path):
+        """Extracts text from a PDF file."""
+        try:
+            doc = fitz.open(file_path)
+            text = []
+            for page in doc:
+                text.append(page.get_text())
+            return "\n".join(text)
+        except Exception as e:
+            print(f"Error extracting from .pdf: {e}")
             return ""
 
     def _extract_text_from_pptx(self, file_path):
@@ -58,5 +68,3 @@ class ReaderAgent:
         except Exception as e:
             print(f"Error extracting from image: {e}")
             return ""
-
-    # Define _extract_text_from_pdf here later

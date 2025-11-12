@@ -1,18 +1,19 @@
 import React, { useState, useRef } from "react";
 import { uploadPdf, generateAll } from "../api";
 
-export default function UploadPanel({ files = [], setFiles = () => {}, onDone }){
+export default function UploadPanel({ files = [], setFiles = () => {}, onDone, uploadProgress, setUploadProgress, setUploadedFile }){
   const [status, setStatus] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
   const fileInputRef = useRef(null);
 
   const getFileIcon = (fileName) => {
     const ext = fileName.split('.').pop().toLowerCase();
     const iconMap = {
-      'pdf': '📕',
-      'pptx': '🎯',
+      'pdf': '📄',
+      'pptx': '📄',
       'docx': '📄',
-      'txt': '📝',
+      'txt': '📄',
       'png': '🖼️',
       'jpg': '🖼️',
       'jpeg': '🖼️',
@@ -40,22 +41,10 @@ export default function UploadPanel({ files = [], setFiles = () => {}, onDone })
   };
 
   const addFiles = (newFiles) => {
-    // Support PDF, Office documents, text files, and images for handwritten notes
     const supportedExtensions = ['.pdf', '.pptx', '.docx', '.txt', '.png', '.jpg', '.jpeg', '.gif', '.bmp'];
-    const supportedTypes = [
-      'application/pdf',
-      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'text/plain',
-      'image/png',
-      'image/jpeg',
-      'image/gif',
-      'image/bmp'
-    ];
-    
     const validFiles = newFiles.filter(f => {
       const ext = '.' + f.name.split('.').pop().toLowerCase();
-      return supportedExtensions.includes(ext) || supportedTypes.includes(f.type);
+      return supportedExtensions.includes(ext);
     });
     
     if (validFiles.length < newFiles.length) {
@@ -81,28 +70,40 @@ export default function UploadPanel({ files = [], setFiles = () => {}, onDone })
     
     setIsLoading(true);
     setStatus("Uploading and processing...");
+    setUploadProgress(0);
     
     try {
-      // Upload each file and generate
       for (let i = 0; i < files.length; i++) {
-        setStatus(`Processing file ${i + 1}/${files.length}...`);
-        await uploadPdf(files[i]);
+        setStatus(`Uploading file ${i + 1}/${files.length}...`);
+        const file = files[i];
+        setUploadedFile(file.name);
+        await uploadPdf(file, (progressEvent) => {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          setUploadProgress(percentCompleted);
+        });
       }
       
-      setStatus("Generating flashcards, quizzes, and study plans...");
-      await generateAll();
-      
-      setStatus("✅ Complete! Study materials ready.");
-      setFiles([]);
-      
-      setTimeout(() => {
-        onDone && onDone();
-      }, 1500);
+      setStatus("Generating study materials...");
+      setGenerationProgress(0);
+      const eventSource = generateAll((data) => {
+        setStatus(data.message);
+        setGenerationProgress(data.progress);
+        if (data.progress === 100) {
+          eventSource.close();
+          setStatus("✅ Complete! Study materials ready.");
+          setFiles([]);
+          setTimeout(() => {
+            onDone && onDone();
+          }, 1500);
+        }
+      });
+
     } catch(e){
       console.error(e);
       setStatus("❌ Error. Check console for details.");
-    } finally {
       setIsLoading(false);
+      setUploadProgress(0);
+      setGenerationProgress(0);
     }
   };
 
@@ -111,15 +112,14 @@ export default function UploadPanel({ files = [], setFiles = () => {}, onDone })
       <div style={styles.header}>
         <h1 style={styles.title}>Empower Your Learning with AI</h1>
         <p style={styles.subtitle}>
-          Upload your PDF slides, PowerPoint presentations, Word documents, text notes, or handwritten notes 
-          (as images), and let StudyBuddy AI transform them into personalized flashcards, quizzes, and revision plans.
+          Upload your notes and PDF slides, and let StudyBuddy AI transform them into personalized flashcards, quizzes, and revision plans.
         </p>
       </div>
 
       <div style={styles.uploadSection}>
         <h2 style={styles.sectionTitle}>Upload Your Study Materials</h2>
         <p style={styles.sectionSubtitle}>
-          Drag and drop your files here, or click to browse. Supported formats: PDF, PPTX, DOCX, TXT, PNG, JPG, GIF, BMP.
+          Drag and drop your files here, or click to browse. Supported formats: PDF, DOCX, PPTX, TXT.
         </p>
 
         <div 
@@ -145,7 +145,7 @@ export default function UploadPanel({ files = [], setFiles = () => {}, onDone })
           ref={fileInputRef}
           type="file"
           multiple
-          accept=".pdf,.docx,.pptx,.txt,.png,.jpg,.jpeg,.gif,.bmp,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/png,image/jpeg,image/gif,image/bmp"
+          accept=".pdf,.docx,.pptx,.txt,.png,.jpg,.jpeg,.gif,.bmp"
           onChange={handleFileInput}
           style={{ display: "none" }}
         />
@@ -172,6 +172,15 @@ export default function UploadPanel({ files = [], setFiles = () => {}, onDone })
           </div>
         )}
       </div>
+
+      {isLoading && (
+        <div style={styles.progressContainer}>
+          <div style={styles.progressBar} >
+            <div style={{...styles.progressFill, width: `${uploadProgress > 0 ? uploadProgress : generationProgress}%`}}></div>
+          </div>
+          <p style={styles.progressText}>{uploadProgress > 0 ? `${uploadProgress}%` : `${generationProgress}%`}</p>
+        </div>
+      )}
 
       <div style={styles.buttonsContainer}>
         {files.length > 0 && (
@@ -206,7 +215,6 @@ const styles = {
     maxWidth: "900px",
     margin: "0 auto",
     padding: "40px 20px",
-    fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
   },
   header: {
     textAlign: "center",
@@ -239,11 +247,11 @@ const styles = {
     margin: "0 0 20px 0",
   },
   dropZone: {
-    border: "2px dashed #ddd",
+    border: "2px dashed #e5e7eb",
     borderRadius: "8px",
     padding: "40px",
     textAlign: "center",
-    backgroundColor: "#fafafa",
+    backgroundColor: "#f9fafb",
     cursor: "pointer",
     transition: "all 0.3s ease",
     marginBottom: "20px",
@@ -261,16 +269,16 @@ const styles = {
   dragDropText: {
     fontSize: "16px",
     fontWeight: "500",
-    color: "#333",
+    color: "#374151",
     margin: "0",
   },
   orText: {
     fontSize: "14px",
-    color: "#999",
+    color: "#9ca3af",
     margin: "8px 0",
   },
   browseButton: {
-    backgroundColor: "#0066ff",
+    backgroundColor: "#3b82f6",
     color: "white",
     border: "none",
     padding: "10px 24px",
@@ -283,7 +291,7 @@ const styles = {
   },
   maxFileSize: {
     fontSize: "12px",
-    color: "#999",
+    color: "#9ca3af",
     margin: "12px 0 0 0",
   },
   filesList: {
@@ -292,7 +300,7 @@ const styles = {
   filesHeader: {
     fontSize: "14px",
     fontWeight: "600",
-    color: "#1a1a1a",
+    color: "#111827",
     margin: "0 0 12px 0",
   },
   filesContainer: {
@@ -305,7 +313,7 @@ const styles = {
     alignItems: "center",
     justifyContent: "space-between",
     padding: "12px",
-    backgroundColor: "#f5f5f5",
+    backgroundColor: "#f3f4f6",
     borderRadius: "6px",
     fontSize: "14px",
   },
@@ -318,7 +326,7 @@ const styles = {
     fontSize: "16px",
   },
   fileName: {
-    color: "#333",
+    color: "#374151",
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
@@ -326,7 +334,7 @@ const styles = {
   removeButton: {
     backgroundColor: "transparent",
     border: "none",
-    color: "#999",
+    color: "#9ca3af",
     fontSize: "18px",
     cursor: "pointer",
     padding: "0 8px",
@@ -340,8 +348,8 @@ const styles = {
   },
   clearButton: {
     padding: "10px 20px",
-    backgroundColor: "#f5f5f5",
-    border: "1px solid #ddd",
+    backgroundColor: "#e5e7eb",
+    border: "1px solid #d1d5db",
     borderRadius: "6px",
     fontSize: "14px",
     fontWeight: "500",
@@ -350,7 +358,7 @@ const styles = {
   },
   generateButton: {
     padding: "10px 28px",
-    backgroundColor: "#0066ff",
+    backgroundColor: "#3b82f6",
     color: "white",
     border: "none",
     borderRadius: "6px",
@@ -362,10 +370,33 @@ const styles = {
   statusMessage: {
     marginTop: "20px",
     padding: "12px",
-    backgroundColor: "#f0f7ff",
-    color: "#0066ff",
+    backgroundColor: "#eff6ff",
+    color: "#3b82f6",
     borderRadius: "6px",
     textAlign: "center",
     fontSize: "14px",
+  },
+  progressContainer: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    marginBottom: "20px",
+  },
+  progressBar: {
+    height: "10px",
+    backgroundColor: "#e5e7eb",
+    borderRadius: "5px",
+    overflow: "hidden",
+    flex: 1,
+  },
+  progressFill: {
+    height: "100%",
+    backgroundColor: "#3b82f6",
+    transition: "width 0.3s ease",
+  },
+  progressText: {
+    fontSize: "14px",
+    fontWeight: "600",
+    color: "#374151",
   },
 };
